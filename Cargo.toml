@@ -1,0 +1,3 @@
+[workspace]
+members = ["server", "pyserver"]
+resolver = "2"
