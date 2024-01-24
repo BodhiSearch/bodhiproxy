@@ -9,3 +9,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = "0.20.2"
+bodhiproxy = { version = "0.1.0", path = "../server" }
