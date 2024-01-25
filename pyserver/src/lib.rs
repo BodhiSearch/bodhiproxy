@@ -1,38 +1,26 @@
-use std::net::Shutdown;
+use ::bodhiproxy::AppError;
+use pyo3::create_exception;
+use pyo3::exceptions::PyException;
+use pyo3::prelude::*;
+use std::fmt::Display;
+use ::bodhiproxy as proxy;
 
-use ::bodhiproxy::{build_server, ServerHandle};
-use once_cell::sync::Lazy;
-use pyo3::{create_exception, exceptions::PyException, prelude::*};
-use tokio::runtime::Runtime;
+#[derive(thiserror::Error, Debug)]
+pub enum PyAppErr {
+  AppError(#[from] ::bodhiproxy::AppError),
+}
 
-static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
-  tokio::runtime::Builder::new_multi_thread()
-    .enable_all()
-    .build()
-    .unwrap()
-});
+impl Display for PyAppErr {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      PyAppErr::AppError(e) => write!(f, "App error: {}", e),
+    }
+  }
+}
 
 #[pyclass]
 struct Server {
-  #[pyo3(get)]
-  port: u16,
-  shutdown: Option<tokio::sync::oneshot::Sender<()>>,
-  handle: Option<tokio::task::JoinHandle<std::result::Result<(), std::io::Error>>>,
-}
-
-impl Drop for Server {
-  fn drop(&mut self) {
-    if let Some(shutdown) = self.shutdown.take() {
-      if shutdown.send(()).is_err() {
-        eprintln!("Error sending shutdown signal");
-      }
-      if let Some(join_handle) = self.handle.take() {
-        if let Err(e) = TOKIO_RUNTIME.block_on(join_handle) {
-          eprintln!("Error shutting down server: {}", e);
-        }
-      }
-    }
-  }
+  server: proxy::Server,
 }
 
 #[allow(clippy::redundant_async_block)]
@@ -41,40 +29,20 @@ impl Server {
   #[new]
   #[pyo3(signature = (port = 3000))]
   fn new(port: u16) -> PyResult<Self> {
-    let ServerHandle {
-      port,
-      shutdown,
-      handle,
-    } = TOKIO_RUNTIME.block_on(build_server(port))?;
-    let join_handle = TOKIO_RUNTIME.spawn(async move { handle.await });
-    Ok(Server {
-      port,
-      shutdown: Some(shutdown),
-      handle: Some(join_handle),
-    })
+    let server = proxy::Server::new(port)?;
+    Ok(Server { server })
   }
 
   #[getter]
   fn status(&self) -> PyResult<String> {
-    if self.shutdown.is_some() {
-      Ok("running".to_string())
-    } else {
-      Ok("stopped".to_string())
-    }
+    Ok(self.server.status())
   }
 
   fn stop(&mut self) -> PyResult<()> {
-    if let Some(shutdown) = self.shutdown.take() {
-      shutdown.send(()).unwrap();
-      if let Some(join_handle) = self.handle.take() {
-        tokio::runtime::Runtime::new()
-          .unwrap()
-          .block_on(join_handle)
-          .unwrap()?
-      }
-      Ok(())
-    } else {
-      Err(InvalidServerState::new_err("Server is not running"))
+    match self.server.stop() {
+      Ok(_) => Ok(()),
+      Err(AppError::ServerNotRunning) => Err(InvalidServerState::new_err("Server is not running")),
+      Err(e) => Err(e.into()),
     }
   }
 }

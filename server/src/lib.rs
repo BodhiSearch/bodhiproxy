@@ -1,20 +1,34 @@
+pub mod server;
 pub mod utils;
+pub use server::*;
 
 use axum::routing::get;
 use axum::Router;
+use once_cell::sync::Lazy;
 use pyo3::PyErr;
 use std::fmt::Display;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
+use tokio::task::JoinError;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
+
+static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
+  tokio::runtime::Builder::new_multi_thread()
+    .enable_all()
+    .build()
+    .unwrap()
+});
 
 #[derive(thiserror::Error, Debug)]
 pub enum AppError {
   IoError(#[from] std::io::Error),
+  JoinError(#[from] JoinError),
+  ServerNotRunning,
 }
 
 impl From<AppError> for PyErr {
@@ -27,6 +41,8 @@ impl Display for AppError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       AppError::IoError(e) => write!(f, "IO error: {}", e),
+      AppError::JoinError(e) => write!(f, "Join error: {}", e),
+      AppError::ServerNotRunning => write!(f, "Server is not running"),
     }
   }
 }

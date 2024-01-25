@@ -8,8 +8,8 @@ clean:
 	cargo clean
 
 build:
-	cargo build
+	maturin develop
 
-test:
+test: build
 	cargo test
 	poetry run pytest
