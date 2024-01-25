@@ -14,15 +14,36 @@ impl Drop for Server {
         eprintln!("Error sending shutdown signal");
       }
       if let Some(join_handle) = self.handle.take() {
-        if let Err(e) = TOKIO_RUNTIME.block_on(join_handle) {
-          eprintln!("Error shutting down server: {}", e);
-        }
+        std::thread::spawn(move || {
+          if let Err(e) = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(join_handle)
+          {
+            eprintln!("Error shutting down server: {}", e);
+          }
+        });
       }
     }
   }
 }
 
 impl Server {
+  #[allow(clippy::redundant_async_block)]
+  pub async fn new_async(port: u16) -> Result<Self, AppError> {
+    let ServerHandle {
+      port,
+      shutdown,
+      handle,
+    } = build_server(port).await?;
+    let join_handle = TOKIO_RUNTIME.spawn(async move { handle.await });
+    Ok(Server {
+      port,
+      shutdown: Some(shutdown),
+      handle: Some(join_handle),
+    })
+  }
+
+  #[allow(clippy::redundant_async_block)]
   pub fn new(port: u16) -> Result<Self, AppError> {
     let ServerHandle {
       port,
