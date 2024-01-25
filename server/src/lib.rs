@@ -1,5 +1,8 @@
+pub mod utils;
+
 use axum::routing::get;
 use axum::Router;
+use pyo3::PyErr;
 use std::fmt::Display;
 use std::future::Future;
 use std::pin::Pin;
@@ -12,6 +15,12 @@ use tower_http::trace::TraceLayer;
 #[derive(thiserror::Error, Debug)]
 pub enum AppError {
   IoError(#[from] std::io::Error),
+}
+
+impl From<AppError> for PyErr {
+  fn from(err: AppError) -> Self {
+    pyo3::exceptions::PyIOError::new_err(err.to_string())
+  }
 }
 
 impl Display for AppError {
@@ -29,12 +38,7 @@ pub struct ServerHandle {
 }
 
 pub async fn build_server(port: u16) -> Result<ServerHandle, AppError> {
-  let app: Router = axum::Router::new()
-    .route("/", get(|| async { "world hell" }))
-    .layer((
-      TraceLayer::new_for_http(),
-      TimeoutLayer::new(Duration::from_secs(5)),
-    ));
+  let app: Router = route();
   let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
   let (shutdown, rx) = oneshot::channel::<()>();
   let handle = axum::serve(listener, app).with_graceful_shutdown(ShutdownWrapper { rx });
@@ -58,4 +62,13 @@ impl Future for ShutdownWrapper {
       Poll::Pending => Poll::Pending,
     }
   }
+}
+
+fn route() -> Router {
+  axum::Router::new()
+    .route("/ping", get(|| async { "pong" }))
+    .layer((
+      TraceLayer::new_for_http(),
+      TimeoutLayer::new(Duration::from_secs(5)),
+    ))
 }
