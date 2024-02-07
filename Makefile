@@ -15,3 +15,7 @@ build:
 test:
 	$(MAKE) -C server test
 	$(MAKE) -C pyserver test
+
+all:
+	$(MAKE) -C server all
+	$(MAKE) -C pyserver all

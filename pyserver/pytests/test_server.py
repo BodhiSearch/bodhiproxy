@@ -1,38 +1,63 @@
+import asyncio
+import random
+
 import pytest
 import requests
-from bodhiproxy import Server, InvalidServerState
+from bodhiproxy import InvalidServerState, Server
 
 
-def test_server_start():
-  server = Server()
+@pytest.fixture
+def random_port():
+  return random.randint(3000, 4000)
+
+
+@pytest.mark.asyncio
+async def test_server_start(random_port):
+  server = await Server.start_server(random_port)
   assert server.status == "running"
-  server.stop()
+  await server.stop()
   assert server.status == "stopped"
   with pytest.raises(InvalidServerState) as e:
     server.stop()
   assert str(e.value) == "Server is not running"
 
 
-def test_server_ping():
-  server = Server()
-  response = requests.get("http://localhost:3000/ping")
+@pytest.mark.asyncio
+async def test_server_ping(random_port):
+  server = await Server.start_server(random_port)
+  response = requests.get(f"http://localhost:{random_port}/ping")
   assert response.status_code == 200
   assert response.text == "pong"
-  server.stop()
+  await server.stop()
 
 
-def test_server_destructor():
-  server = Server()
-  del server
+@pytest.mark.asyncio
+async def test_server_stop(random_port):
+  server = await Server.start_server(random_port)
+  await server.stop()
   with pytest.raises(Exception) as e:
-    requests.get("http://localhost:3000/ping")
+    _ = requests.get(f"http://localhost:{random_port}/ping")
   assert "Failed to establish a new connection" in str(e.value)
 
 
-def test_server_on_port():
-  port = 8080
-  server = Server(port)
-  response = requests.get(f"http://localhost:{port}/ping")
+@pytest.mark.asyncio
+async def test_server_del(random_port):
+  server = await Server.start_server(random_port)
+  del server
+  for _ in range(3):
+    try:
+      _ = requests.get(f"http://localhost:{random_port}/ping")
+      await asyncio.sleep(0.1)
+    except requests.exceptions.ConnectionError as e:
+      assert "Failed to establish a new connection" in str(e)
+      return
+  raise AssertionError("the server was not closed when the handle was deleted")
+
+
+@pytest.mark.asyncio
+async def test_server_on_port(random_port):
+  server = await Server.start_server(random_port)
+  response = requests.get(f"http://localhost:{random_port}/ping")
   assert response.status_code == 200
   assert response.text == "pong"
   server.stop()
